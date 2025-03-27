@@ -220,7 +220,7 @@ class MainKt : Application() {
                     thread { handleClient(clientSocket) }
                 }
             } catch (e: IOException) {
-                Platform.runLater { appendLog("Lỗi khi khởi động server: ${e.message}") }
+                Platform.runLater { appendLog("Error starting server: ${e.message}") }
             }
         }
     }
@@ -246,18 +246,17 @@ class MainKt : Application() {
                 if (message.startsWith("LOGIN:")) {
                     username = message.removePrefix("LOGIN:").trim()
                     if (clients.containsKey(username)) {
-                        writer.println("ERROR: Username đã tồn tại!")
+                        writer.println("ERROR: Username already exists!")
                         continue
                     }
                     // Lưu socket vào danh sách online
                     clients[username] = socket
-                    appendLog("✅ $username đã đăng nhập!")
-                    writer.println("OK: Đăng nhập thành công!")
+                    appendLog("✅ $username are online!")
+                    writer.println("OK: Login successful!")
                     continue
                 }
                 if (message.startsWith("LIST_CLIENTS")) {
                     val clientList = clients.keys.joinToString(",")
-                    appendLog("📤 Gửi danh sách client: $clientList")
                     writer.println(clientList.ifEmpty { "NO_CLIENTS" })
                     writer.flush() // Đảm bảo dữ liệu được gửi ngay
                     continue
@@ -288,20 +287,19 @@ class MainKt : Application() {
                         }
                     }
 
-                    appendLog("✅ File $fileName từ $username đã nhận thành công")
-                    writer.println("File $fileName đã được server lưu!")
+                    appendLog("✅ File $fileName is received!")
+                    writer.println("File $fileName is received!")
 
-                    // Gửi file đến người nhận
                     sendFileToReceiver(receiver, pendingFile)
                 }
             }
         } catch (e: IOException) {
-            appendLog("❌ Client bị ngắt kết nối: ${socket.inetAddress}")
+            appendLog("❌ Disconnected: ${socket.inetAddress}")
         } finally {
             // Xóa client khỏi danh sách khi mất kết nối
             if (username != null && clients.containsKey(username)) {
                 clients.remove(username)
-                appendLog("$username đã ngắt kết nối")
+                appendLog("$username is offline")
             }
             socket.close()
         }
@@ -327,19 +325,19 @@ class MainKt : Application() {
                     outputStream.flush()
                 }
 
-                Platform.runLater { appendLog("📤 File ${file.name} đã gửi tới $receiver") }
+                Platform.runLater { appendLog("📤 File ${file.name} is sent to $receiver") }
             } catch (e: IOException) {
-                appendLog("Lỗi khi gửi file tới $receiver: ${e.message}")
+                appendLog("Error sending file to $receiver: ${e.message}")
             }
         } ?: run {
-            appendLog("Người nhận $receiver không online, lưu file lại")
+            appendLog("$receiver is offline, file not sent.")
         }
     }
 
     private fun appendLog(text: String) {
         when {
-            text.contains("đăng nhập") -> playMusic("/hello.mp3")
-            text.contains("đã ngắt") -> playMusic("/bye.mp3")
+            text.contains("online") -> playMusic("/hello.mp3")
+            text.contains("offline") -> playMusic("/bye.mp3")
             else -> playMusic("/noti.mp3")
         }
         val currentTime = java.util.Date()
