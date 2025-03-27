@@ -271,7 +271,7 @@ class MainKt : Application() {
                     if (!serverSaveDir.exists()) serverSaveDir.mkdirs()
 
                     val pendingFile = File(serverSaveDir, fileName)
-                    appendLog("📥 $username is sending file: $fileName ($fileSize bytes) to server")
+                    appendLog("📥 sending file: $fileName ($fileSize bytes) to server")
 
                     // Nhận dữ liệu file từ client
                     FileOutputStream(pendingFile).use { fos ->
