@@ -234,105 +234,122 @@ class MainKt : Application() {
             stage.scene = createLoginScene(stage)
         }
     }
+
     private fun handleClient(socket: Socket) {
         var username: String? = null
         try {
-            val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
-            val writer = PrintWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8), true)
+
+            val input = DataInputStream(socket.getInputStream())
+            val output = DataOutputStream(socket.getOutputStream())
 
             while (true) {
-                val message = reader.readLine()?.trim() ?: break
-                // Kiểm tra nếu client đăng nhập
+                val message = input.readUTF().trim()
+
+                // Xử lý đăng nhập
                 if (message.startsWith("LOGIN:")) {
                     username = message.removePrefix("LOGIN:").trim()
-                    if (clients.containsKey(username)) {
-                        writer.println("ERROR: Username already exists!")
+
+                    // Kiểm tra username hợp lệ
+                    if (username.isEmpty()) {
+                        output.writeUTF("ERROR: Invalid username!")
                         continue
                     }
-                    // Lưu socket vào danh sách online
+                    if (clients.containsKey(username)) {
+                        output.writeUTF("ERROR: Username already exists!")
+                        continue
+                    }
+
                     clients[username] = socket
-                    appendLog("✅ $username are online!")
-                    writer.println("OK: Login successful!")
+                    appendLog("✅ $username is online!")
+                    output.writeUTF("OK: Login successful!")
                     continue
                 }
-                if (message.startsWith("LIST_CLIENTS")) {
+
+                // Danh sách client
+                if (message == "LIST_CLIENTS") {
                     val clientList = clients.keys.joinToString(",")
-                    writer.println(clientList.ifEmpty { "NO_CLIENTS" })
-                    writer.flush() // Đảm bảo dữ liệu được gửi ngay
+                    output.writeUTF(clientList.ifEmpty { "NO_CLIENTS" })
                     continue
                 }
-                // Nhận file nếu client gửi
+
+                // Nhận file từ client
                 if (message == "START_FILE") {
-                    val receiver = reader.readLine()?.trim() ?: break
-                    val fileName = reader.readLine()?.trim() ?: break
-                    val fileSize = reader.readLine()?.toLongOrNull() ?: break
+                    val receiver = input.readUTF().trim()
+                    val fileName = input.readUTF().trim()
+                    val fileSize = input.readLong()
 
-                    val serverSaveDir = File("Server_save")
-                    if (!serverSaveDir.exists()) serverSaveDir.mkdirs()
-
+                    val serverSaveDir = File("Server_save").apply { mkdirs() }
                     val pendingFile = File(serverSaveDir, fileName)
-                    appendLog("📥 sending file: $fileName ($fileSize bytes) to server")
 
-                    // Nhận dữ liệu file từ client
+                    appendLog("📥 Receiving file: $fileName ($fileSize bytes)")
+
                     FileOutputStream(pendingFile).use { fos ->
-                        val buffer = ByteArray(4096)
+                        val buffer = ByteArray(65536) // 64KB buffer giúp giảm số lần đọc
                         var totalRead: Long = 0
-                        val inputStream = socket.getInputStream()
 
                         while (totalRead < fileSize) {
-                            val bytesRead = inputStream.read(buffer)
+                            val bytesRead = input.read(buffer)
                             if (bytesRead == -1) break
                             fos.write(buffer, 0, bytesRead)
                             totalRead += bytesRead
                         }
                     }
 
-                    appendLog("✅ File $fileName is received!")
-                    writer.println("File $fileName is received!")
-
-                    sendFileToReceiver(receiver, pendingFile)
+                    // Kiểm tra xem đã nhận đủ file chưa
+                    if (pendingFile.length() == fileSize) {
+                        appendLog("✅ File $fileName received successfully!")
+                        output.writeUTF("OK: File $fileName received!")
+                        sendFileToReceiver(receiver, pendingFile)
+                    } else {
+                        appendLog("⚠️ File $fileName may be corrupted! Expected $fileSize bytes, got ${pendingFile.length()} bytes")
+                        output.writeUTF("ERROR: File transfer incomplete!")
+                    }
                 }
             }
-        } catch (e: IOException) {
-            appendLog("❌ Disconnected: ${socket.inetAddress}")
         } finally {
-            // Xóa client khỏi danh sách khi mất kết nối
-            if (username != null && clients.containsKey(username)) {
-                clients.remove(username)
-                appendLog("$username is offline")
+            username?.let {
+                if (clients.remove(it) != null) {
+                    appendLog("🔴 $it is offline")
+                }
             }
-            socket.close()
+
+            try {
+                socket.close()
+            } catch (e: IOException) {
+                appendLog("⚠️ Error closing socket: ${e.message}")
+            }
         }
     }
+
 
     private fun sendFileToReceiver(receiver: String, file: File) {
         clients[receiver]?.let { receiverSocket ->
             try {
-                val outputStream = receiverSocket.getOutputStream()
-                val writer = PrintWriter(outputStream, true)
+                val output = DataOutputStream(receiverSocket.getOutputStream())
 
-                // Gửi tín hiệu bắt đầu và thông tin file
-                writer.println("FILE:${file.name}")
-                writer.println(file.length())
+                output.writeUTF("FILE")
+                output.writeUTF(file.name)
+                output.writeLong(file.length())
 
-                // Gửi dữ liệu file
                 FileInputStream(file).use { fileIn ->
-                    val buffer = ByteArray(4096)
+                    val buffer = ByteArray(65536) // Tăng buffer lên 64KB
                     var bytesRead: Int
                     while (fileIn.read(buffer).also { bytesRead = it } != -1) {
-                        outputStream.write(buffer, 0, bytesRead)
+                        output.write(buffer, 0, bytesRead)
                     }
-                    outputStream.flush()
                 }
+                output.flush() // Đảm bảo tất cả dữ liệu được gửi đi
 
-                Platform.runLater { appendLog("📤 File ${file.name} is sent to $receiver") }
+                Platform.runLater { appendLog("📤 File ${file.name} sent to $receiver") }
             } catch (e: IOException) {
-                appendLog("Error sending file to $receiver: ${e.message}")
+                appendLog("❌ Error sending file to $receiver: ${e.message}")
             }
         } ?: run {
-            appendLog("$receiver is offline, file not sent.")
+            appendLog("⚠️ $receiver is offline, file not sent.")
         }
     }
+
+
 
     private fun appendLog(text: String) {
         when {
